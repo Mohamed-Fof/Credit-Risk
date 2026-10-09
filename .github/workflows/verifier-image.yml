@@ -1,0 +1,43 @@
+# Intégration continue : à chaque envoi sur main, GitHub construit l'image Docker
+# (comme Render), lance l'application et vérifie qu'elle répond. Une image cassée est
+# ainsi détectée avant d'atteindre les visiteurs, avec un journal lisible.
+name: Vérification de l'image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construire l'image
+        run: |
+          set -o pipefail
+          docker build --progress=plain -t credit-risk . 2>&1 | tee construction.log
+
+      - name: Lancer l'application et vérifier qu'elle répond
+        run: |
+          docker run -d --name appli -p 10000:10000 credit-risk
+          for i in $(seq 1 45); do
+            if curl -sf http://localhost:10000/ -o page.html; then break; fi
+            sleep 2
+          done
+          grep -q "Scoring de risque de crédit" page.html
+          echo "L'application répond correctement."
+
+      - name: Résumer l'erreur en cas d'échec
+        if: failure()
+        run: |
+          for f in construction.log; do [ -f "$f" ] && tail -40 "$f" > fin.log; done
+          docker logs appli > conteneur.log 2>&1 || true
+          [ -s conteneur.log ] && tail -40 conteneur.log >> fin.log
+          message=$(sed -e 's/%/%25/g' -e 's/\r//g' fin.log | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=Échec de l'image::${message}"
