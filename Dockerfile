@@ -5,7 +5,7 @@
 #    construction en quelques minutes ;
 #  - versions figées à la date d'entraînement des modèles : l'application lit le
 #    booster XGBoost avec la même version que celle qui l'a créé ;
-#  - seulement 5 paquets et le dossier app/ (2,3 Mo de modèles), lancés sans shiny-server.
+#  - seulement 4 paquets et le dossier app/ (modèles et images : 1,5 Mo), lancés sans shiny-server.
 # =============================================================================
 FROM rocker/r-ver:4.5.1
 
@@ -23,8 +23,8 @@ RUN apt-get update \
 ARG INSTANTANE_CRAN=2026-10-09
 RUN CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME") \
  && R -q -e "options(repos = c(CRAN = 'https://p3m.dev/cran/__linux__/${CODENAME}/${INSTANTANE_CRAN}')); \
-             install.packages(c('shiny', 'bslib', 'ggplot2', 'xgboost', 'naivebayes'), Ncpus = 4); \
-             invisible(lapply(c('shiny', 'bslib', 'ggplot2', 'xgboost', 'naivebayes'), library, character.only = TRUE))" \
+             install.packages(c('shiny', 'bslib', 'xgboost', 'naivebayes'), Ncpus = 4); \
+             invisible(lapply(c('shiny', 'bslib', 'xgboost', 'naivebayes'), library, character.only = TRUE))" \
  && rm -rf /tmp/downloaded_packages
 
 RUN useradd --create-home appli

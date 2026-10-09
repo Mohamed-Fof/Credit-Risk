@@ -130,9 +130,10 @@ Toutes les étapes aléatoires sont fixées par une graine (2026) : les chiffres
 L'application tourne sur **Render** (offre gratuite) à partir du `Dockerfile` :
 
 - image R minimale (`rocker/r-ver`, 365 Mo contre 580 Mo pour `rocker/shiny` auparavant) et paquets **précompilés** figés à la date d'entraînement ;
-- seulement 5 paquets et 2,3 Mo de modèles chargés une fois au démarrage (la v1 rechargeait un modèle de 40 Mo à chaque prédiction) : l'application est prête en moins de 2 secondes une fois le conteneur lancé ;
+- seulement 4 paquets et 1,5 Mo de modèles et d'images chargés une fois au démarrage (la v1 rechargeait un modèle de 40 Mo à chaque prédiction) ;
+- page construite **une seule fois** au démarrage puis resservie (1,3 ms par visite au lieu de 223 ms : la compilation du thème était refaite à chaque visite), graphiques dessinés à l'avance : le serveur gratuit, environ 10 fois moins puissant qu'un ordinateur portable, n'a presque plus rien à calculer ;
 - **contrôle à la construction** : l'image vérifie que l'application se charge (locale UTF-8, paquets, modèles) ; si quelque chose casse, Render garde la version précédente en ligne ;
-- l'offre gratuite de Render endort le service après 15 minutes sans visite (72 secondes de réveil mesurées) : la tâche [`reveil-render.yml`](.github/workflows/reveil-render.yml) l'appelle toutes les 10 minutes pour qu'un visiteur n'attende pas.
+- l'offre gratuite de Render endort le service après 15 minutes sans visite (72 secondes de réveil mesurées) : la tâche [`reveil-render.yml`](.github/workflows/reveil-render.yml) l'appelle toutes les 10 minutes, et le portfolio la réveille en arrière-plan dès qu'un visiteur arrive.
 
 **Sécurité.** Toutes les saisies sont revérifiées côté serveur (Shiny ne contrôle pas que la valeur d'une liste déroulante fait partie des choix proposés), les messages d'erreur techniques sont masqués, le conteneur tourne sans droits d'administrateur et l'application ne conserve aucune donnée saisie.
 

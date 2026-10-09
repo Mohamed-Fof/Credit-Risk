@@ -58,6 +58,12 @@ Reprise complète du projet présenté en soutenance (L3 MIASHS, avril 2026). La
 ### Tests
 - 26 tests automatiques (`tests/tests.R`) : contrôle des saisies face à un client malveillant, préparation, reproduction exacte des prédictions, additivité des valeurs de Shapley, cohérence du modèle sur tous les dossiers de test, grille de score.
 
+### Performance (serveur gratuit de Render, environ 0,1 processeur)
+- Page construite une seule fois au démarrage puis resservie : 223 ms → 1,3 ms par visite (la compilation du thème Sass était refaite à chaque visite, soit près de 3 s sur Render).
+- Graphiques des onglets Comparaison et Exploration dessinés à l'export, servis comme images ; explication de la décision en barres HTML ; ggplot2 n'est plus chargé (4 paquets au lieu de 5).
+- Correction : l'onglet Exploration plantait sur la variable « Taux d'effort ».
+- Réveil anticipé : le portfolio contacte l'application en arrière-plan dès qu'un visiteur arrive ; tâche de réveil GitHub décalée sur des minutes moins encombrées.
+
 ### Organisation du code
 - Script unique découpé en quatre étapes (`R/01` à `R/04`) et un lanceur `R/executer_tout.R`.
 - Préparation des données partagée entre l'entraînement et l'application : aucun écart possible entre les deux.

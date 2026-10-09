@@ -75,12 +75,62 @@ saveRDS(list(
   calibration = evaluation$calibration, importance = evaluation$importance,
   journal = read.csv("resultats/journal_nettoyage.csv"),
   ratio_cout = RATIO_COUT, n_apprentissage = nrow(apprentissage), n_test = nrow(test),
-  reglage_xgboost = readRDS("donnees/derivees/reglages.rds")$xgboost
+  reglage_xgboost = readRDS("donnees/derivees/reglages.rds")$xgboost,
+  n_dossiers = nrow(apprentissage) + nrow(test), taux_defaut = mean(c(apprentissage$defaut, test$defaut))
 ), "app/modeles/evaluation.rds", compress = "xz")
 
-# --- Données d'exploration : jeu nettoyé, codes français ---------------------
-saveRDS(rbind(apprentissage, test), "app/modeles/exploration.rds", compress = "xz")
 
 tailles <- file.info(list.files("app/modeles", full.names = TRUE))$size
 cat(sprintf("Fichiers de l'application : %s (total %.2f Mo)\n",
             paste(basename(list.files("app/modeles")), collapse = ", "), sum(tailles) / 1e6))
+
+# --- Graphiques de l'application, dessinés ici une fois pour toutes ----------------
+# Le serveur gratuit de Render dispose d'environ 0,1 processeur : y dessiner un graphique
+# ggplot coûte près d'une seconde. Ces images ne changent pas d'un visiteur à l'autre ;
+# elles sont donc produites à l'export, et ggplot2 n'est plus chargé par l'application.
+suppressPackageStartupMessages(library(ggplot2))
+dir.create("app/www/figures", recursive = TRUE, showWarnings = FALSE)
+BLEU <- "#2563eb"; VIOLET <- "#7c3aed"; ROUGE <- "#dc2626"
+COULEURS <- c("Logistique v1 (soutenance)" = "#94a3b8", "Naïve Bayes" = "#f59e0b", "Régression logistique" = "#16a34a",
+              "Elastic net" = "#0891b2", "Grille de score" = "#7c3aed", "XGBoost" = BLEU, "XGBoost non contraint" = "#93c5fd")
+virgule <- scales::label_number(decimal.mark = ",", big.mark = " ", drop0trailing = TRUE)
+pct_axe <- scales::label_percent(decimal.mark = ",", suffix = " %")
+theme_set(theme_minimal(base_size = 13) + theme(legend.position = "bottom", panel.grid.minor = element_blank()))
+image_app <- function(g, nom, l = 7.2, h = 4.6) ggsave(file.path("app/www/figures", nom), g, width = l, height = h, dpi = 144, bg = "white")
+
+courbes <- alleger(evaluation$courbes)
+etiquettes <- setNames(unique(courbes$Modele), unique(courbes$cle))
+image_app(ggplot(courbes, aes(fpr, tpr, colour = cle)) + geom_abline(linetype = 2, colour = "grey70") +
+  geom_path(linewidth = 1) + scale_colour_manual(values = COULEURS, labels = etiquettes, name = NULL) +
+  scale_x_continuous(labels = pct_axe) + scale_y_continuous(labels = pct_axe) + guides(colour = guide_legend(ncol = 2)) +
+  labs(x = "Bons clients refusés", y = "Défauts détectés"), "roc.png", 7.2, 5.6)
+image_app(ggplot(evaluation$calibration, aes(predit, observe, colour = Modele)) + geom_abline(linetype = 2, colour = "grey60") +
+  geom_line(linewidth = 0.8) + geom_point(size = 2) + scale_colour_manual(values = COULEURS, name = NULL) +
+  scale_x_continuous(labels = pct_axe, limits = c(0, 1)) + scale_y_continuous(labels = pct_axe, limits = c(0, 1)) +
+  labs(x = "Probabilité prédite", y = "Défauts observés"), "calibration.png", 7.2, 5.6)
+image_app(ggplot(evaluation$importance, aes(valeur, reorder(Variable, valeur))) + geom_col(fill = BLEU) +
+  scale_x_continuous(labels = virgule) + labs(x = "Contribution moyenne (|Shapley|)", y = NULL), "importance.png", 7.6, 4.8)
+
+exploration <- rbind(apprentissage, test)
+exploration$statut <- factor(ifelse(exploration$defaut == 1, "Défaut", "Remboursé"), levels = c("Remboursé", "Défaut"))
+for (v in VARIABLES_NUMERIQUES) {
+  d <- exploration
+  if (v == "taux_effort") d$taux_effort <- d$montant_pret / d$revenu_annuel
+  d <- d[!is.na(d[[v]]), ]
+  image_app(ggplot(d, aes(.data[[v]], fill = statut)) + geom_density(alpha = 0.55, colour = NA) +
+    coord_cartesian(xlim = quantile(d[[v]], c(0.005, 0.995))) +
+    scale_fill_manual(values = c("Remboursé" = BLEU, "Défaut" = ROUGE), name = NULL) +
+    scale_x_continuous(labels = virgule) + scale_y_continuous(labels = virgule) +
+    labs(x = LIBELLES_VARIABLES[v], y = "Densité", caption = "Valeurs extrêmes (0,5 % de chaque côté) hors du cadre"),
+    paste0("exploration_", v, ".png"))
+}
+for (v in VARIABLES_QUALITATIVES) {
+  t <- aggregate(defaut ~ modalite, data = data.frame(modalite = exploration[[v]], defaut = exploration$defaut), FUN = mean)
+  t$libelle <- LIBELLES_MODALITES[[v]][as.character(t$modalite)]
+  image_app(ggplot(t, aes(defaut, reorder(libelle, defaut))) + geom_col(fill = VIOLET) +
+    geom_text(aes(label = paste0(formatC(100 * defaut, format = "f", digits = 1, decimal.mark = ","), " %")), hjust = -0.1, size = 4.2) +
+    scale_x_continuous(labels = pct_axe, expand = expansion(mult = c(0, 0.18))) + labs(x = "Taux de défaut", y = NULL),
+    paste0("exploration_", v, ".png"))
+}
+cat(sprintf("Graphiques de l'application : %d images dans app/www/figures (%.2f Mo)\n",
+            length(list.files("app/www/figures")), sum(file.info(list.files("app/www/figures", full.names = TRUE))$size) / 1e6))

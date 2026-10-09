@@ -9,7 +9,8 @@ name: Réveil de l'application
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # Minutes décalées : GitHub retarde en priorité les tâches planifiées aux heures pleines.
+    - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch:
 
 permissions: {}

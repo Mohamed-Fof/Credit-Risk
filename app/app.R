@@ -4,7 +4,7 @@
 # et résultats pré-calculés. Aucun calcul lourd n'est fait pendant la navigation.
 # =============================================================================
 suppressPackageStartupMessages({
-  library(shiny); library(bslib); library(ggplot2); library(xgboost); library(naivebayes)
+  library(shiny); library(bslib); library(xgboost); library(naivebayes)
 })
 # Sécurité : en cas d'erreur, l'utilisateur voit un message générique, jamais le détail technique.
 options(shiny.sanitize.errors = TRUE)
@@ -14,13 +14,8 @@ source("modeles_application.R", encoding = "UTF-8")
 MODELES <- readRDS("modeles/modeles.rds")
 MODELES$xgboost <- xgb.load("modeles/xgboost.ubj")
 EVAL <- readRDS("modeles/evaluation.rds")
-DONNEES <- readRDS("modeles/exploration.rds")
-DONNEES$statut <- factor(ifelse(DONNEES$defaut == 1, "Défaut", "Remboursé"), levels = c("Remboursé", "Défaut"))
 
 BLEU <- "#2563eb"; VIOLET <- "#7c3aed"; ROUGE <- "#dc2626"; VERT <- "#16a34a"
-COULEURS <- c("Logistique v1 (soutenance)" = "#94a3b8", "Naïve Bayes" = "#f59e0b", "Régression logistique" = "#16a34a",
-              "Elastic net" = "#0891b2", "Grille de score" = "#7c3aed", "XGBoost" = BLEU, "XGBoost non contraint" = "#93c5fd")
-theme_set(theme_minimal(base_size = 13) + theme(plot.title = element_text(face = "bold"), legend.position = "bottom"))
 pct <- function(x, d = 1) {
   borne <- 10^-(d + 2)   # aucun modèle n'est certain : on affiche « < 0,1 % » plutôt que « 0,0 % »
   ifelse(x < borne, paste0("< ", formatC(100 * borne, format = "f", digits = d, decimal.mark = ","), " %"),
@@ -28,8 +23,26 @@ pct <- function(x, d = 1) {
          paste0(formatC(100 * x, format = "f", digits = d, decimal.mark = ","), " %")))
 }
 nombre <- function(x, d = 3) formatC(x, format = "f", digits = d, decimal.mark = ",")
-virgule <- scales::label_number(decimal.mark = ",", big.mark = " ", drop0trailing = TRUE)
 choix <- function(v) setNames(names(LIBELLES_MODALITES[[v]]), unname(LIBELLES_MODALITES[[v]]))
+
+# Images dessinées à l'export (R/04_export_application.R) : rien à calculer pendant la visite.
+image_figure <- function(fichier, texte) tags$img(src = file.path("figures", fichier), alt = texte, loading = "lazy",
+                                                  style = "width: 100%; height: auto;")
+
+# Graphique d'explication en HTML pur : instantané, net sur tous les écrans, sans moteur graphique.
+barres_explication <- function(e) {
+  maxi <- max(abs(e$contribution), 1e-9)
+  tags$div(class = "barres", lapply(seq_len(nrow(e)), function(i) {
+    c <- e$contribution[i]
+    largeur <- sprintf("%.1f%%", 100 * abs(c) / maxi)
+    barre <- tags$span(class = paste("barre", if (c > 0) "hausse" else "baisse"), style = paste0("width:", largeur),
+                       title = sprintf("%+.2f (log-odds)", c))
+    tags$div(class = "ligne-barre",
+      tags$span(class = "libelle-barre", e$libelle[i]),
+      tags$span(class = "moitie gauche", if (c < 0) barre),
+      tags$span(class = "moitie droite", if (c > 0) barre))
+  }))
+}
 
 theme_appli <- bs_theme(version = 5, primary = BLEU, secondary = VIOLET,
                         base_font = font_collection("Inter", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"))
@@ -57,6 +70,14 @@ ui <- page_navbar(
     .decision.refus { background: linear-gradient(135deg, #dc2626, #b91c1c); }
     .decision.accord { background: linear-gradient(135deg, #16a34a, #15803d); }
     .table td, .table th { vertical-align: middle; }
+    .barres { display: flex; flex-direction: column; gap: 0.55rem; padding: 0.4rem 0; }
+    .ligne-barre { display: grid; grid-template-columns: minmax(8rem, 38%) 1fr 1fr; align-items: center; gap: 0; font-size: 0.9rem; }
+    .libelle-barre { padding-right: 0.8rem; text-align: right; line-height: 1.2; }
+    .moitie { display: flex; height: 1.15rem; }
+    .moitie.gauche { justify-content: flex-end; border-right: 2px solid #94a3b8; }
+    .barre { display: block; height: 100%; border-radius: 3px; }
+    .barre.hausse { background: #dc2626; }
+    .barre.baisse { background: #16a34a; }
   "))),
 
   nav_panel("Simulateur", icon = icon("calculator"),
@@ -80,7 +101,7 @@ ui <- page_navbar(
       uiOutput("bloc_decision"),
       layout_columns(col_widths = c(7, 5),
         card(card_header("Pourquoi cette décision ?"),
-             plotOutput("explication", height = "360px"),
+             uiOutput("explication"),
              card_footer(tags$small(class = "text-muted",
                "Contribution de chaque caractéristique à la probabilité de défaut estimée par XGBoost (valeurs de Shapley). ",
                "En rouge : ce qui augmente le risque ; en vert : ce qui le réduit."))),
@@ -103,11 +124,11 @@ ui <- page_navbar(
     card(card_header("Performances sur le jeu de test"), tableOutput("tableau_test"),
          card_footer(tags$small(class = "text-muted", uiOutput("glossaire", inline = TRUE)))),
     layout_columns(col_widths = c(6, 6),
-      card(card_header("Courbes ROC"), plotOutput("roc", height = "460px")),
-      card(card_header("Calibration des probabilités"), plotOutput("calibration", height = "460px"))
+      card(card_header("Courbes ROC"), image_figure("roc.png", "Courbes ROC des modèles sur le jeu de test")),
+      card(card_header("Calibration des probabilités"), image_figure("calibration.png", "Calibration : probabilité prédite contre taux de défaut observé"))
     ),
     layout_columns(col_widths = c(7, 5),
-      card(card_header("Variables les plus influentes (XGBoost)"), plotOutput("importance", height = "380px")),
+      card(card_header("Variables les plus influentes (XGBoost)"), image_figure("importance.png", "Importance des variables selon les valeurs de Shapley")),
       card(card_header("La note du prêteur est-elle indispensable ?"), uiOutput("sensibilite"))
     ),
     card(card_header("Cohérence des décisions : pourquoi le modèle retenu n'est pas celui à la plus haute AUC"),
@@ -128,10 +149,10 @@ ui <- page_navbar(
     layout_columns(col_widths = c(6, 6),
       card(card_header("Variable numérique selon le statut du prêt"),
            selectInput("var_num", NULL, setNames(VARIABLES_NUMERIQUES, LIBELLES_VARIABLES[VARIABLES_NUMERIQUES])),
-           plotOutput("graphe_num", height = "360px")),
+           uiOutput("graphe_num")),
       card(card_header("Taux de défaut par modalité"),
            selectInput("var_qual", NULL, setNames(VARIABLES_QUALITATIVES, LIBELLES_VARIABLES[VARIABLES_QUALITATIVES])),
-           plotOutput("graphe_qual", height = "360px"))
+           uiOutput("graphe_qual"))
     )
   ),
 
@@ -142,6 +163,26 @@ ui <- page_navbar(
   nav_spacer(),
   nav_item(tags$a(icon("github"), "Code source", href = "https://github.com/Mohamed-Fof/Credit-Risk", target = "_blank", rel = "noopener noreferrer"))
 )
+
+# Performance : construire cette page coûte environ 0,2 s (compilation du thème Sass), soit
+# près de 3 s sur le serveur gratuit de Render. Elle est donc rendue UNE fois au démarrage,
+# puis resservie telle quelle (environ 2 ms par visite).
+figer_page <- function(page, theme) {
+  # Hors d'une visite, Shiny ignore le thème actif et produirait une navigation au format
+  # Bootstrap 3 : on le déclare, comme le ferait bslib au premier affichage.
+  shiny::shinyOptions(bootstrapTheme = theme)
+  rendu <- htmltools::renderTags(page)
+  corps <- regmatches(rendu$html, regexec("^\\s*<body([^>]*)>(.*)</body>\\s*$", rendu$html))[[1]]
+  stopifnot(length(corps) == 3)
+  classe <- sub('.*class="([^"]*)".*', "\\1", corps[2])
+  fige <- htmltools::attachDependencies(
+    htmltools::tagList(htmltools::tags$head(htmltools::HTML(rendu$head)),
+                       htmltools::tags$body(class = classe, htmltools::HTML(corps[3]))),
+    rendu$dependencies)
+  attr(fige, "lang") <- attr(page, "lang")
+  fige
+}
+ui <- figer_page(ui, theme_appli)
 
 # =============================================================================
 # Serveur
@@ -157,7 +198,7 @@ server <- function(input, output, session) {
       montant_pret = input$montant_pret, taux_interet = input$taux_interet,
       defaut_anterieur = input$defaut_anterieur, anciennete_credit = input$anciennete_credit
     )
-  }) |> debounce(400)
+  }) |> debounce(300)
 
   erreurs <- reactive(verifier_dossier(dossier()))
   valide <- reactive(length(erreurs()) == 0)
@@ -192,17 +233,9 @@ server <- function(input, output, session) {
       ))
   })
 
-  output$explication <- renderPlot(res = 96, {
+  output$explication <- renderUI({
     e <- expliquer(dossier_valide(), MODELES)
-    e <- head(e[order(-abs(e$contribution)), ], 8)
-    e$sens <- ifelse(e$contribution > 0, "Augmente le risque", "Réduit le risque")
-    ggplot(e, aes(contribution, reorder(libelle, abs(contribution)), fill = sens)) +
-      geom_col(width = 0.65) + geom_vline(xintercept = 0, colour = "grey50") +
-      scale_fill_manual(values = c("Augmente le risque" = ROUGE, "Réduit le risque" = VERT), name = NULL) +
-      scale_y_discrete(labels = scales::label_wrap(24)) +
-      scale_x_continuous(n.breaks = 4, labels = virgule) +
-      guides(fill = "none") +   # couleurs expliquées sous le graphique : plus de place sur téléphone
-      labs(x = NULL, y = NULL)
+    barres_explication(head(e[order(-abs(e$contribution)), ], 8))
   })
 
   output$score_points <- renderUI({
@@ -263,28 +296,6 @@ server <- function(input, output, session) {
     "<b>Brier</b> : erreur quadratique des probabilités (plus bas = mieux calibré).",
     sprintf("Jeu de test : %s dossiers, jamais utilisés pour entraîner ni régler les modèles.", format(EVAL$n_test, big.mark = " ")))))
 
-  output$roc <- renderPlot(res = 96, {
-    etiquettes <- setNames(unique(EVAL$courbes$Modele), unique(EVAL$courbes$cle))
-    ggplot(EVAL$courbes, aes(fpr, tpr, colour = cle)) + geom_abline(linetype = 2, colour = "grey70") +
-      geom_path(linewidth = 1) + scale_colour_manual(values = COULEURS, labels = etiquettes, name = NULL) +
-      scale_x_continuous(labels = scales::percent) + scale_y_continuous(labels = scales::percent) +
-      guides(colour = guide_legend(ncol = 2)) +
-      labs(x = "Bons clients refusés", y = "Défauts détectés")
-  })
-
-  output$calibration <- renderPlot(res = 96, {
-    ggplot(EVAL$calibration, aes(predit, observe, colour = Modele)) + geom_abline(linetype = 2, colour = "grey60") +
-      geom_line(linewidth = 0.8) + geom_point(size = 2) + scale_colour_manual(values = COULEURS, name = NULL) +
-      scale_x_continuous(labels = scales::percent, limits = c(0, 1)) + scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
-      labs(x = "Probabilité prédite", y = "Défauts observés")
-  })
-
-  output$importance <- renderPlot(res = 96, {
-    ggplot(EVAL$importance, aes(valeur, reorder(Variable, valeur))) + geom_col(fill = BLEU) +
-      scale_x_continuous(labels = virgule) +
-      labs(x = "Contribution moyenne (|Shapley|)", y = NULL)
-  })
-
   output$coherence <- renderTable({
     co <- EVAL$coherence
     auc_de <- setNames(t_test$AUC, t_test$Modele)
@@ -304,30 +315,22 @@ server <- function(input, output, session) {
   })
 
   # --- Exploration -----------------------------------------------------------------
-  output$kpi_dossiers <- renderText(format(nrow(DONNEES), big.mark = " "))
-  output$kpi_taux <- renderText(pct(mean(DONNEES$defaut)))
+  output$kpi_dossiers <- renderText(format(EVAL$n_dossiers, big.mark = " "))
+  output$kpi_taux <- renderText(pct(EVAL$taux_defaut))
   output$kpi_variables <- renderText(length(c(VARIABLES_NUMERIQUES, VARIABLES_QUALITATIVES)) - 1)
   output$kpi_doublons <- renderText(EVAL$journal$lignes[1] - EVAL$journal$lignes[2])
 
-  output$graphe_num <- renderPlot(res = 96, {
+  # Choix vérifié contre la liste des variables : un client modifié ne peut pas viser un autre fichier.
+  output$graphe_num <- renderUI({
     v <- input$var_num
-    d <- DONNEES[!is.na(DONNEES[[v]]), ]
-    lim <- quantile(d[[v]], c(0.005, 0.995))
-    ggplot(d, aes(.data[[v]], fill = statut)) +
-      geom_density(alpha = 0.55, colour = NA) + coord_cartesian(xlim = lim) +
-      scale_fill_manual(values = c("Remboursé" = BLEU, "Défaut" = ROUGE), name = NULL) +
-      scale_x_continuous(labels = virgule) + scale_y_continuous(labels = virgule) +
-      labs(x = LIBELLES_VARIABLES[v], y = "Densité", caption = "Valeurs extrêmes (0,5 % de chaque côté) hors du cadre")
+    if (length(v) != 1 || !v %in% VARIABLES_NUMERIQUES) return(NULL)
+    image_figure(paste0("exploration_", v, ".png"), paste("Distribution de", LIBELLES_VARIABLES[v], "selon le statut du prêt"))
   })
 
-  output$graphe_qual <- renderPlot(res = 96, {
+  output$graphe_qual <- renderUI({
     v <- input$var_qual
-    t <- aggregate(defaut ~ modalite, data = data.frame(modalite = DONNEES[[v]], defaut = DONNEES$defaut), FUN = mean)
-    t$libelle <- LIBELLES_MODALITES[[v]][as.character(t$modalite)]
-    ggplot(t, aes(defaut, reorder(libelle, defaut))) + geom_col(fill = VIOLET) +
-      geom_text(aes(label = pct(defaut)), hjust = -0.1, size = 4) +
-      scale_x_continuous(labels = scales::percent, expand = expansion(mult = c(0, 0.15))) +
-      labs(x = "Taux de défaut", y = NULL)
+    if (length(v) != 1 || !v %in% VARIABLES_QUALITATIVES) return(NULL)
+    image_figure(paste0("exploration_", v, ".png"), paste("Taux de défaut selon", LIBELLES_VARIABLES[v]))
   })
 
   # --- Méthode ---------------------------------------------------------------------
