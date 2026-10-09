@@ -72,6 +72,8 @@ ui <- page_navbar(
     .decision h2 { margin: 0; font-weight: 700; }
     .decision.refus { background: linear-gradient(135deg, #dc2626, #b91c1c); }
     .decision.accord { background: linear-gradient(135deg, #16a34a, #15803d); }
+    .grille-decision { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 1rem; align-items: start; }
+    @media (max-width: 767.98px) { .grille-decision { grid-template-columns: 1fr; } }
     .table td, .table th { vertical-align: middle; }
     .barres { display: flex; flex-direction: column; gap: 0.55rem; padding: 0.4rem 0; }
     .ligne-barre { display: grid; grid-template-columns: minmax(8rem, 38%) 1fr 1fr; align-items: center; gap: 0; font-size: 0.9rem; }
@@ -225,8 +227,10 @@ server <- function(input, output, session) {
     p <- probabilites()[["XGBoost"]]
     s <- MODELES$seuils[["XGBoost"]]
     refus <- p >= s
+    # Grille CSS simple plutôt que layout_columns : un composant bslib dans un élément redessiné
+    # recompile ses styles Sass et recopie ses fichiers à CHAQUE saisie (mesuré au profileur).
     div(class = paste("decision mb-3", if (refus) "refus" else "accord"),
-      layout_columns(col_widths = c(6, 3, 3),
+      div(class = "grille-decision",
         div(tags$div(class = "small text-uppercase opacity-75", "Décision recommandée"),
             h2(if (refus) "Prêt déconseillé" else "Prêt envisageable"),
             tags$div(class = "small opacity-75", sprintf("Seuil de refus : %s de probabilité de défaut", pct(s)))),

@@ -62,6 +62,7 @@ Reprise complète du projet présenté en soutenance (L3 MIASHS, avril 2026). La
 - Page construite une seule fois au démarrage puis resservie : 223 ms → 1,3 ms par visite (la compilation du thème Sass était refaite à chaque visite, soit près de 3 s sur Render).
 - Graphiques des onglets Comparaison et Exploration dessinés à l'export, servis comme images ; explication de la décision en barres HTML ; ggplot2 n'est plus chargé (4 paquets au lieu de 5).
 - Correction : l'onglet Exploration plantait sur la variable « Taux d'effort ».
+- Bandeau de décision en grille CSS : le composant bslib qu'il contenait recompilait ses styles Sass et recopiait ses fichiers à chaque saisie (identifié au profileur).
 - XGBoost limité à un fil de calcul (`nthread = 1`, `OMP_NUM_THREADS=1`) : sur une fraction de processeur, un fil par cœur de la machine hôte provoquait une contention.
 - Réveil anticipé : le portfolio contacte l'application en arrière-plan dès qu'un visiteur arrive ; tâche de réveil GitHub décalée sur des minutes moins encombrées.
 
