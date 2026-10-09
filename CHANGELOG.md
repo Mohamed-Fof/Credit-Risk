@@ -63,6 +63,7 @@ Reprise complète du projet présenté en soutenance (L3 MIASHS, avril 2026). La
 - Graphiques des onglets Comparaison et Exploration dessinés à l'export, servis comme images ; explication de la décision en barres HTML ; ggplot2 n'est plus chargé (4 paquets au lieu de 5).
 - Correction : l'onglet Exploration plantait sur la variable « Taux d'effort ».
 - Bandeau de décision en grille CSS : le composant bslib qu'il contenait recompilait ses styles Sass et recopiait ses fichiers à chaque saisie (identifié au profileur).
+- Décision du dossier par défaut incluse directement dans la page : le visiteur voit un résultat complet dès l'ouverture, sans attendre le serveur ; un seul calcul par saisie, partagé par toutes les vues, et tableaux en HTML direct.
 - XGBoost limité à un fil de calcul (`nthread = 1`, `OMP_NUM_THREADS=1`) : sur une fraction de processeur, un fil par cœur de la machine hôte provoquait une contention.
 - Réveil anticipé : le portfolio contacte l'application en arrière-plan dès qu'un visiteur arrive ; tâche de réveil GitHub décalée sur des minutes moins encombrées.
 

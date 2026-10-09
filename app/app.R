@@ -59,6 +59,80 @@ carte_kpi <- function(titre, sortie, sous_titre = NULL) {
 }
 
 # =============================================================================
+# Simulateur : un calcul par dossier, des vues qui ne font qu'afficher
+# Les mêmes fonctions servent deux fois : au démarrage, pour inclure directement dans la
+# page la décision du dossier par défaut (le visiteur voit un résultat complet dès
+# l'ouverture), puis dans le serveur, à chaque saisie.
+# =============================================================================
+DOSSIER_DEFAUT <- list(age = 30, revenu_annuel = 50000, statut_logement = "locataire", anciennete_emploi = 5,
+                       motif_pret = "personnel", note_risque = "B", montant_pret = 10000, taux_interet = 11,
+                       defaut_anterieur = "non", anciennete_credit = 4)
+
+calculer <- function(d) {
+  x <- appliquer_preparation(d, MODELES$params)
+  e <- expliquer(d, MODELES)
+  points <- points_grille(x, MODELES$grille_score)
+  list(proba = predire_tous(d, MODELES), explication = e[order(-abs(e$contribution)), ],
+       points = points, detail = detail_points(x[1, , drop = FALSE], MODELES$grille_score))
+}
+
+# Tableau HTML léger (sans xtable) ; le texte est échappé par htmltools.
+tableau_html <- function(df) {
+  tags$table(class = "table table-striped table-sm w-100 mb-0",
+    tags$thead(tags$tr(lapply(names(df), tags$th))),
+    tags$tbody(lapply(seq_len(nrow(df)), function(i) tags$tr(lapply(df[i, ], function(v) tags$td(as.character(v)))))))
+}
+
+vue_decision <- function(r) {
+  p <- r$proba[["XGBoost"]]
+  s <- MODELES$seuils[["XGBoost"]]
+  refus <- p >= s
+  # Grille CSS simple plutôt que layout_columns : un composant bslib dans un élément redessiné
+  # recompile ses styles Sass et recopie ses fichiers à CHAQUE saisie (mesuré au profileur).
+  div(class = paste("decision mb-3", if (refus) "refus" else "accord"),
+    div(class = "grille-decision",
+      div(tags$div(class = "small text-uppercase opacity-75", "Décision recommandée"),
+          h2(if (refus) "Prêt déconseillé" else "Prêt envisageable"),
+          tags$div(class = "small opacity-75", sprintf("Seuil de refus : %s de probabilité de défaut", pct(s)))),
+      div(tags$div(class = "small text-uppercase opacity-75", "Probabilité de défaut"), h2(pct(p))),
+      div(tags$div(class = "small text-uppercase opacity-75", "Modèle"), h2("XGBoost"),
+          tags$div(class = "small opacity-75", "le plus performant sur le test"))))
+}
+
+vue_explication <- function(r) barres_explication(head(r$explication, 8))
+
+vue_points <- function(r) {
+  p <- probabilite_depuis_points(r$points)
+  tagList(
+    tags$div(class = "fs-2 fw-bold text-nowrap", paste(round(r$points), "points")),
+    tags$div(class = "text-muted mb-2", sprintf("soit %s de risque · avis : %s", pct(p),
+                                                if (p >= MODELES$seuils[["Grille de score"]]) "refus" else "accord")),
+    tags$p(class = "small text-muted", "Méthode des banques : chaque caractéristique rapporte ou retire des points. ",
+           "600 points correspondent à 5 % de risque ; 50 points de plus divisent la cote de risque par deux. ",
+           "C'est un modèle distinct de XGBoost, plus simple et entièrement lisible."))
+}
+
+vue_detail <- function(r) {
+  d <- r$detail[order(-abs(r$detail$points)), ]
+  tableau_html(data.frame(`Caractéristique` = unname(LIBELLES_VARIABLES[d$variable]),
+                          Points = sprintf("%+d", as.integer(d$points)), check.names = FALSE))
+}
+
+vue_avis <- function(r) {
+  p <- r$proba
+  tableau_html(data.frame(
+    `Modèle` = names(p),
+    `Probabilité de défaut` = vapply(p, pct, character(1)),
+    `Seuil du modèle` = vapply(names(p), function(n) pct(MODELES$seuils[[n]]), character(1)),
+    `Avis` = ifelse(unlist(p) >= MODELES$seuils[names(p)], "Refus", "Accord"),
+    check.names = FALSE))
+}
+
+# Sortie Shiny déjà remplie : affichée immédiatement, puis mise à jour par le serveur.
+sortie <- function(id, contenu) div(id = id, class = "shiny-html-output", contenu)
+INITIAL <- calculer(as.data.frame(DOSSIER_DEFAUT, stringsAsFactors = FALSE))
+
+# =============================================================================
 # Interface
 # =============================================================================
 ui <- page_navbar(
@@ -75,6 +149,7 @@ ui <- page_navbar(
     .grille-decision { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 1rem; align-items: start; }
     @media (max-width: 767.98px) { .grille-decision { grid-template-columns: 1fr; } }
     .table td, .table th { vertical-align: middle; }
+    .shiny-html-output.recalculating { opacity: 0.75; transition: opacity 0.2s ease 0.6s; }
     .barres { display: flex; flex-direction: column; gap: 0.55rem; padding: 0.4rem 0; }
     .ligne-barre { display: grid; grid-template-columns: minmax(8rem, 38%) 1fr 1fr; align-items: center; gap: 0; font-size: 0.9rem; }
     .libelle-barre { padding-right: 0.8rem; text-align: right; line-height: 1.2; }
@@ -89,32 +164,32 @@ ui <- page_navbar(
     layout_sidebar(
       # Sur téléphone, le formulaire s'affiche au-dessus des résultats au lieu d'être replié.
       sidebar = sidebar(width = 340, title = "Dossier de l'emprunteur", open = list(desktop = "open", mobile = "always-above"),
-        numericInput("age", "Âge", 30, min = 18, max = 100),
-        numericInput("revenu_annuel", "Revenu annuel ($)", 50000, min = 1000, max = 1e7, step = 1000),
-        selectInput("statut_logement", "Statut résidentiel", choix("statut_logement"), selected = "locataire"),
-        numericInput("anciennete_emploi", "Ancienneté professionnelle (années)", 5, min = 0, max = 60),
-        numericInput("anciennete_credit", "Ancienneté de l'historique de crédit (années)", 4, min = 0, max = 60),
-        selectInput("defaut_anterieur", "Défaut de paiement antérieur", choix("defaut_anterieur")),
+        numericInput("age", "Âge", DOSSIER_DEFAUT$age, min = 18, max = 100),
+        numericInput("revenu_annuel", "Revenu annuel ($)", DOSSIER_DEFAUT$revenu_annuel, min = 1000, max = 1e7, step = 1000),
+        selectInput("statut_logement", "Statut résidentiel", choix("statut_logement"), selected = DOSSIER_DEFAUT$statut_logement),
+        numericInput("anciennete_emploi", "Ancienneté professionnelle (années)", DOSSIER_DEFAUT$anciennete_emploi, min = 0, max = 60),
+        numericInput("anciennete_credit", "Ancienneté de l'historique de crédit (années)", DOSSIER_DEFAUT$anciennete_credit, min = 0, max = 60),
+        selectInput("defaut_anterieur", "Défaut de paiement antérieur", choix("defaut_anterieur"), selected = DOSSIER_DEFAUT$defaut_anterieur),
         tags$hr(),
-        numericInput("montant_pret", "Montant du prêt ($)", 10000, min = 100, max = 1e6, step = 500),
-        selectInput("motif_pret", "Motif du prêt", choix("motif_pret"), selected = "personnel"),
-        numericInput("taux_interet", "Taux d'intérêt (%)", 11, min = 1, max = 40, step = 0.1),
-        selectInput("note_risque", "Note de risque attribuée par le prêteur", choix("note_risque"), selected = "B"),
+        numericInput("montant_pret", "Montant du prêt ($)", DOSSIER_DEFAUT$montant_pret, min = 100, max = 1e6, step = 500),
+        selectInput("motif_pret", "Motif du prêt", choix("motif_pret"), selected = DOSSIER_DEFAUT$motif_pret),
+        numericInput("taux_interet", "Taux d'intérêt (%)", DOSSIER_DEFAUT$taux_interet, min = 1, max = 40, step = 0.1),
+        selectInput("note_risque", "Note de risque attribuée par le prêteur", choix("note_risque"), selected = DOSSIER_DEFAUT$note_risque),
         tags$small(class = "text-muted", "A = meilleure note, G = la plus risquée.")
       ),
       uiOutput("erreurs"),
-      uiOutput("bloc_decision"),
+      sortie("bloc_decision", vue_decision(INITIAL)),
       layout_columns(col_widths = c(7, 5),
         card(card_header("Pourquoi cette décision ?"),
-             uiOutput("explication"),
+             sortie("explication", vue_explication(INITIAL)),
              card_footer(tags$small(class = "text-muted",
                "Contribution de chaque caractéristique à la probabilité de défaut estimée par XGBoost (valeurs de Shapley). ",
                "En rouge : ce qui augmente le risque ; en vert : ce qui le réduit."))),
         card(card_header("Grille de score bancaire"),
-             uiOutput("score_points"),
-             tableOutput("detail_grille"))
+             sortie("score_points", vue_points(INITIAL)),
+             sortie("detail_grille", vue_detail(INITIAL)))
       ),
-      card(card_header("Avis des cinq modèles"), tableOutput("avis_modeles"),
+      card(card_header("Avis des cinq modèles"), sortie("avis_modeles", vue_avis(INITIAL)),
            card_footer(tags$small(class = "text-muted", textOutput("note_seuils", inline = TRUE))))
     )
   ),
@@ -221,60 +296,13 @@ server <- function(input, output, session) {
     }
   })
 
-  probabilites <- reactive(predire_tous(dossier_valide(), MODELES))
-
-  output$bloc_decision <- renderUI({
-    p <- probabilites()[["XGBoost"]]
-    s <- MODELES$seuils[["XGBoost"]]
-    refus <- p >= s
-    # Grille CSS simple plutôt que layout_columns : un composant bslib dans un élément redessiné
-    # recompile ses styles Sass et recopie ses fichiers à CHAQUE saisie (mesuré au profileur).
-    div(class = paste("decision mb-3", if (refus) "refus" else "accord"),
-      div(class = "grille-decision",
-        div(tags$div(class = "small text-uppercase opacity-75", "Décision recommandée"),
-            h2(if (refus) "Prêt déconseillé" else "Prêt envisageable"),
-            tags$div(class = "small opacity-75", sprintf("Seuil de refus : %s de probabilité de défaut", pct(s)))),
-        div(tags$div(class = "small text-uppercase opacity-75", "Probabilité de défaut"), h2(pct(p))),
-        div(tags$div(class = "small text-uppercase opacity-75", "Modèle"), h2("XGBoost"),
-            tags$div(class = "small opacity-75", "le plus performant sur le test"))
-      ))
-  })
-
-  output$explication <- renderUI({
-    e <- expliquer(dossier_valide(), MODELES)
-    barres_explication(head(e[order(-abs(e$contribution)), ], 8))
-  })
-
-  output$score_points <- renderUI({
-    points <- points_grille(appliquer_preparation(dossier_valide(), MODELES$params), MODELES$grille_score)
-    p <- probabilite_depuis_points(points)
-    tagList(
-      tags$div(class = "fs-2 fw-bold text-nowrap", paste(round(points), "points")),
-      tags$div(class = "text-muted mb-2", sprintf("soit %s de risque · avis : %s", pct(p),
-                                                  if (p >= MODELES$seuils[["Grille de score"]]) "refus" else "accord")),
-      tags$p(class = "small text-muted", "Méthode des banques : chaque caractéristique rapporte ou retire des points. ",
-             "600 points correspondent à 5 % de risque ; 50 points de plus divisent la cote de risque par deux. ",
-             "C'est un modèle distinct de XGBoost, plus simple et entièrement lisible.")
-    )
-  })
-
-  output$detail_grille <- renderTable({
-    x <- appliquer_preparation(dossier_valide(), MODELES$params)
-    d <- detail_points(x[1, , drop = FALSE], MODELES$grille_score)
-    d <- d[order(-abs(d$points)), ]
-    data.frame(`Caractéristique` = unname(LIBELLES_VARIABLES[d$variable]), Points = sprintf("%+d", as.integer(d$points)), check.names = FALSE)
-  }, striped = TRUE, spacing = "s", width = "100%")
-
-  output$avis_modeles <- renderTable({
-    p <- probabilites()
-    data.frame(
-      `Modèle` = names(p),
-      `Probabilité de défaut` = vapply(p, pct, character(1)),
-      `Seuil du modèle` = vapply(names(p), function(n) pct(MODELES$seuils[[n]]), character(1)),
-      `Avis` = ifelse(unlist(p) >= MODELES$seuils[names(p)], "Refus", "Accord"),
-      check.names = FALSE
-    )
-  }, striped = TRUE, width = "100%")
+  # Un seul calcul par saisie, partagé par toutes les vues.
+  resultat <- reactive(calculer(dossier_valide()))
+  output$bloc_decision <- renderUI(vue_decision(resultat()))
+  output$explication <- renderUI(vue_explication(resultat()))
+  output$score_points <- renderUI(vue_points(resultat()))
+  output$detail_grille <- renderUI(vue_detail(resultat()))
+  output$avis_modeles <- renderUI(vue_avis(resultat()))
 
   output$note_seuils <- renderText(sprintf(
     "Chaque seuil minimise le coût attendu en validation croisée, avec l'hypothèse qu'accorder un prêt à un futur défaillant coûte %d fois plus que refuser un bon client.",
