@@ -1,65 +1,25 @@
-# =============================================================
-# .gitignore — Projet R / Shiny : Classification Risque Crédit
-# =============================================================
-
-# --- Fichiers de session R ---
+# --- R ---
 .Rhistory
 .Rapp.history
 .RData
 .Ruserdata
-
-# --- Projet RStudio ---
 *.Rproj
 .Rproj.user/
-
-# --- Cache knitr / R Markdown ---
 *_cache/
 *_files/
 *.knit.md
 *.utf8.md
 
-# --- Outputs générés (ne pas versionner les PDFs/HTML auto-générés) ---
-# Décommenter si vous ne voulez pas versionner les sorties
-# *.pdf
-# *.html
+# --- Données et modèles intermédiaires : régénérés par Rscript R/executer_tout.R ---
+donnees/derivees/
 
-# --- Packages R installés localement ---
-packrat/lib*/
-renv/library/
-renv/local/
-renv/cellar/
-renv/lock   # garder si vous utilisez renv pour reproduire l'env
-.Rprofile   # peut contenir des chemins locaux
-
-# --- Fichiers système macOS ---
+# --- Système ---
 .DS_Store
-.AppleDouble
-.LSOverride
-Icon
 Thumbs.db
 
-# --- Fichiers de déploiement rsconnect ---
-# Le dossier rsconnect/ contient les métadonnées de déploiement.
-# Vous pouvez choisir de le versionner pour garder la config de déploiement.
-# Décommentez la ligne suivante pour l'ignorer :
-# rsconnect/
-
-# --- Données sensibles / volumineuses ---
-# Le dataset CSV est versionné car nécessaire à l'app.
-# Si le fichier est trop grand pour GitHub (>100 MB), utilisez Git LFS.
-# credit_risk_dataset.csv
-
-# --- Modèles entraînés (fichiers .rds) ---
-# Les modèles sont nécessaires au déploiement Shiny, donc versionnés.
-# Si trop volumineux, générez-les via un script et ignorez-les :
-# modele_nb.rds
-# modele_logit.rds
-
-# --- Variables d'environnement / secrets ---
-.env
-.Renviron
-secrets.R
-config.yml
-
-# --- Logs ---
+# --- LaTeX ---
+*.aux
 *.log
+*.out
+*.toc
+*.synctex.gz

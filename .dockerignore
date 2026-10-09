@@ -1,0 +1,4 @@
+# Seul le dossier app/ entre dans l'image : contexte de construction minimal.
+*
+!app/
+app/**/.DS_Store

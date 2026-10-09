@@ -1,0 +1,7 @@
+"Comparaison","p_valeur_DeLong"
+"XGBoost vs Logistique v1 (soutenance)","<1e-04"
+"XGBoost vs Naïve Bayes","<1e-04"
+"XGBoost vs Régression logistique","<1e-04"
+"XGBoost vs Elastic net","<1e-04"
+"XGBoost vs Grille de score","<1e-04"
+"XGBoost vs XGBoost non contraint","<1e-04"

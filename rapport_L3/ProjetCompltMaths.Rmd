@@ -1,0 +1,774 @@
+---
+title: "Projet de Classification Supervisée - Prédiction du Risque de Défaut de Crédit"
+author: "Mohamed FOFANA, Abdou FALL"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+  html_document:
+    toc: false
+    toc_depth: '2'
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  out.width = "80%"
+)
+```
+
+```{r packages}
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(naivebayes)
+library(pROC)
+library(knitr)
+library(kableExtra)
+library(corrplot)
+```
+
+```{r import-data}
+data <- read.csv("credit_risk_dataset.csv")
+```
+
+# Introduction et présentation du jeu de données
+
+Le risque de crédit constitue l'un des enjeux majeurs des institutions financières modernes.
+Accorder un prêt à un emprunteur qui ne pourra pas le rembourser expose la banque à des
+pertes potentiellement importantes, tandis qu'un système trop restrictif pénalise des
+clients solvables et réduit la rentabilité. Dans ce contexte, les modèles de classification
+supervisée offrent un outil précieux : ils permettent d'automatiser et d'objectiver
+l'évaluation du risque à partir de données historiques sur les emprunteurs.
+
+Ce rapport s'inscrit dans le cadre d'un projet de classification supervisée. Nous y
+construisons et évaluons deux modèles prédictifs - un classifieur Naïve Bayes et une
+régression logistique - afin de prédire la probabilité qu'un emprunteur soit en
+situation de défaut de paiement. Après une présentation du jeu de données et d'une
+analyse exploratoire, nous décrivons les étapes de prétraitement et de feature engineering,
+puis nous entraînons, évaluons et comparons les deux classifieurs. Nous concluons par une
+discussion critique des résultats et des limites de chaque approche.
+
+## Présentation générale
+
+### Contexte et objectif
+
+Un **défaut de paiement** survient lorsqu'un emprunteur ne respecte pas ses obligations
+contractuelles de remboursement - que ce soit en raison d'une insolvabilité, d'une
+détérioration de sa situation financière, ou d'un événement imprévu. Pour les établissements
+de crédit, anticiper ces défauts est crucial : cela conditionne à la fois la tarification
+des prêts, la constitution de provisions réglementaires (Bâle III) et la gestion globale
+du portefeuille de risques.
+
+Le jeu de données utilisé est issu de la plateforme Kaggle
+[\textcolor{blue}{Credit Risk Dataset}](https://www.kaggle.com/datasets/laotse/credit-risk-dataset)
+et porte sur des informations relatives à des emprunteurs particuliers. La variable cible
+est `loan_status` : elle prend la valeur **0** lorsque le prêt est remboursé normalement,
+et la valeur **1** en cas de **défaut de paiement**. L'objectif est donc de construire un
+classifieur binaire capable de distinguer ces deux profils à partir des caractéristiques
+disponibles.
+
+### Description des variables
+
+Le jeu de données complet comprend **32 581 observations** et **12 variables**, dont la
+variable cible. Le tableau ci-dessous en présente une description synthétique.
+
+| Variable | Type | Description |
+|---|---|---|
+| `person_age` | Numérique | Âge de l'emprunteur (en années) |
+| `person_income` | Numérique | Revenu annuel (en USD) |
+| `person_home_ownership` | Catégorielle | Statut résidentiel (propriétaire, locataire, etc.) |
+| `person_emp_length` | Numérique | Ancienneté professionnelle (en années) |
+| `loan_intent` | Catégorielle | Motif du prêt (éducation, médical, immobilier, etc.) |
+| `loan_grade` | Catégorielle | Note de risque attribuée au prêt (A à G) |
+| `loan_amnt` | Numérique | Montant du prêt demandé (en USD) |
+| `loan_int_rate` | Numérique | Taux d'intérêt du prêt (en %) |
+| `loan_percent_income` | Numérique | Ratio montant du prêt / revenu annuel |
+| `cb_person_default_on_file` | Catégorielle | Historique de défaut enregistré (Y/N) |
+| `cb_person_cred_hist_length` | Numérique | Durée de l'historique de crédit (en années) |
+| `loan_status` | Binaire | **Variable cible** : 0 = remboursement normal, 1 = défaut |
+
+Ces 12 variables couvrent les trois dimensions classiques de l'analyse crédit : le
+**profil socio-économique** de l'emprunteur (`person_age`, `person_income`,
+`person_home_ownership`, `person_emp_length`), les **caractéristiques du prêt**
+(`loan_intent`, `loan_grade`, `loan_amnt`, `loan_int_rate`, `loan_percent_income`) et
+l'**historique de crédit** (`cb_person_default_on_file`, `cb_person_cred_hist_length`).
+
+```{r apercu-donnees}
+head(data)
+dim(data)
+str(data)
+summary(data)
+```
+
+## Vérification des âges aberrants
+
+```{r age-aberrants}
+# Personnes avec un âge < 18 ans
+age_moins_18 <- data[data$person_age < 18, "person_age"]
+cat("Nombre de personnes avec un âge < 18 ans :", length(age_moins_18), "\n")
+if (length(age_moins_18) > 0) print(age_moins_18)
+
+# Personnes avec un âge > 100 ans
+age_plus_100 <- data[data$person_age > 100, "person_age"]
+cat("Nombre de personnes avec un âge > 100 ans :", length(age_plus_100), "\n")
+if (length(age_plus_100) > 0) print(age_plus_100)
+```
+
+## Valeurs manquantes
+
+Avant toute analyse, nous identifions les variables présentant des valeurs manquantes.
+
+```{r valeurs-manquantes}
+na_counts <- colSums(is.na(data))
+na_df <- data.frame(
+  Variable       = names(na_counts),
+  Manquants      = as.integer(na_counts),
+  Pourcentage    = round(100 * na_counts / nrow(data), 2)
+)
+na_df <- na_df[na_df$Manquants > 0, ]
+kable(na_df, row.names = FALSE,
+      caption = "Variables présentant des valeurs manquantes") %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+Deux variables contiennent des valeurs manquantes : `loan_int_rate` (~9,6 %) et
+`person_emp_length` (~2,7 %). Ces valeurs seront imputées par la médiane lors de
+l'étape de prétraitement, afin de ne pas perdre d'observations.
+
+## Distribution de la variable cible
+
+```{r distribution-cible}
+freq_cible <- prop.table(table(data$loan_status))
+cat("Distribution de loan_status :\n")
+print(round(freq_cible * 100, 1))
+
+ggplot(data, aes(x = factor(loan_status,
+                             labels = c("Non-défaut (0)", "Défaut (1)")))) +
+  geom_bar(aes(y = after_stat(count) / sum(after_stat(count))),
+           fill = c("steelblue", "tomato"), width = 0.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Distribution de la variable cible loan_status",
+       x = NULL, y = "Proportion") +
+  theme_minimal(base_size = 12)
+```
+
+La variable cible présente un **déséquilibre notable** : environ 78 % des observations
+correspondent à des remboursements normaux et 22 % à des défauts. Ce déséquilibre devra
+être pris en compte lors de l'évaluation des classifieurs : l'accuracy seule sera
+insuffisante ; nous privilégierons également le **recall** (sensibilité) afin de minimiser
+les défauts non détectés (faux négatifs), dont le coût métier est élevé.
+
+## Analyse univariée
+
+### Variables quantitatives
+
+```{r univarie-quant, fig.height=9}
+vars_quant <- c("person_age", "person_income", "person_emp_length",
+                "loan_amnt", "loan_int_rate", "loan_percent_income",
+                "cb_person_cred_hist_length")
+
+# Statistiques descriptives
+stats_quant <- data %>%
+  select(all_of(vars_quant)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Valeur") %>%
+  group_by(Variable) %>%
+  summarise(
+    n       = sum(!is.na(Valeur)),
+    Moyenne = round(mean(Valeur, na.rm = TRUE), 2),
+    Médiane = round(median(Valeur, na.rm = TRUE), 2),
+    Éc.type = round(sd(Valeur, na.rm = TRUE), 2),
+    Min     = round(min(Valeur, na.rm = TRUE), 2),
+    Max     = round(max(Valeur, na.rm = TRUE), 2)
+  )
+kable(stats_quant, caption = "Statistiques descriptives des variables quantitatives") %>%
+  kable_styling(latex_options = c("HOLD_position", "scale_down"))
+
+# Histogrammes
+data %>%
+  select(all_of(vars_quant)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Valeur") %>%
+  ggplot(aes(x = Valeur)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white", alpha = 0.8) +
+  facet_wrap(~ Variable, scales = "free", ncol = 2) +
+  labs(title = "Distribution des variables quantitatives", x = NULL, y = "Effectif") +
+  theme_minimal(base_size = 10)
+```
+
+Plusieurs observations méritent d'être soulignées. La variable `person_income` présente
+une distribution très asymétrique vers la droite, avec quelques valeurs extrêmes très
+élevées (revenus > 1 000 000 USD), vraisemblablement des erreurs de saisie. De même,
+`person_emp_length` affiche une valeur maximale de 123 ans, manifestement aberrante.
+Ces valeurs extrêmes n'ont pas été supprimées afin de conserver la taille de l'échantillon,
+mais leur influence sur les modèles sera discutée. Le taux d'intérêt `loan_int_rate`
+suit une distribution approximativement gaussienne, centrée autour de 11 %.
+
+### Variables qualitatives
+
+```{r univarie-qual-tables, results='asis'}
+vars_qual <- c("person_home_ownership", "loan_intent",
+               "loan_grade", "cb_person_default_on_file")
+
+# Tableau de fréquences pour chaque variable
+for (v in vars_qual) {
+  freq_v <- sort(table(data[[v]]), decreasing = TRUE)
+  df_v   <- data.frame(
+    Modalité    = names(freq_v),
+    Effectif    = as.integer(freq_v),
+    Fréquence   = paste0(round(100 * freq_v / sum(freq_v), 1), " %")
+  )
+  print(kable(df_v, row.names = FALSE,
+              caption = paste("Répartition de", gsub("_", " ", v))) %>%
+          kable_styling(latex_options = "HOLD_position"))
+  cat("\n\n")
+}
+```
+
+```{r univarie-qual-plots, fig.height=7}
+# Diagrammes en barres
+data %>%
+  select(all_of(vars_qual)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Modalité") %>%
+  ggplot(aes(x = Modalité)) +
+  geom_bar(fill = "steelblue", alpha = 0.8) +
+  facet_wrap(~ Variable, scales = "free", ncol = 2) +
+  labs(title = "Distribution des variables qualitatives", x = NULL, y = "Effectif") +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+La majorité des emprunteurs sont **locataires** (`RENT`, ~50 %) ou remboursent un
+emprunt immobilier (`MORTGAGE`, ~41 %). La note de risque `loan_grade` est concentrée
+sur les classes A et B (profils les moins risqués). Environ 17 % des individus ont un
+historique de défaut enregistré (`cb_person_default_on_file = Y`).
+
+## Analyse multivariée
+
+### Matrice de corrélation
+
+```{r multi-correlations, fig.height=5}
+cor_mat <- cor(data %>% select(all_of(vars_quant)), use = "complete.obs")
+corrplot(cor_mat, method = "color", type = "upper",
+         tl.cex = 0.8, addCoef.col = "black", number.cex = 0.65,
+         title = "Matrice de corrélation des variables quantitatives",
+         mar = c(0, 0, 1, 0))
+```
+
+On observe une corrélation positive modérée entre `loan_int_rate` et `loan_percent_income`
+(~0,12), ce qui est cohérent : les emprunteurs présentant un ratio prêt/revenu élevé
+se voient attribuer des taux plus élevés. La corrélation entre `loan_amnt` et
+`loan_percent_income` est également positive (~0,58), logiquement.
+
+### Variables quantitatives 
+
+```{r multi-quant-cible, fig.height=9}
+data %>%
+  select(all_of(vars_quant), loan_status) %>%
+  mutate(loan_status = factor(loan_status,
+                              labels = c("Non-défaut", "Défaut"))) %>%
+  pivot_longer(-loan_status, names_to = "Variable", values_to = "Valeur") %>%
+  ggplot(aes(x = loan_status, y = Valeur, fill = loan_status)) +
+  geom_boxplot(outlier.size = 0.5, alpha = 0.7) +
+  scale_fill_manual(values = c("steelblue", "tomato")) +
+  facet_wrap(~ Variable, scales = "free_y", ncol = 2) +
+  labs(title = "Variables quantitatives selon le statut du prêt",
+       x = NULL, y = NULL, fill = "Statut") +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "bottom")
+```
+
+Les défauts sont associés à des **taux d'intérêt plus élevés**, un **ratio prêt/revenu
+plus élevé** et un `loan_int_rate` médian supérieur. Ces variables apparaissent donc
+discriminantes pour la classification.
+
+### Variables qualitatives 
+
+```{r multi-qual-cible, fig.height=7}
+data %>%
+  select(all_of(vars_qual), loan_status) %>%
+  mutate(loan_status = factor(loan_status,
+                              labels = c("Non-défaut", "Défaut"))) %>%
+  pivot_longer(-loan_status, names_to = "Variable", values_to = "Modalité") %>%
+  ggplot(aes(x = Modalité, fill = loan_status)) +
+  geom_bar(position = "fill", alpha = 0.85) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("steelblue", "tomato")) +
+  facet_wrap(~ Variable, scales = "free_x", ncol = 2) +
+  labs(title = "Proportion de défauts par modalité des variables qualitatives",
+       x = NULL, y = "Proportion", fill = "Statut") +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+        legend.position = "bottom")
+```
+
+Les emprunteurs avec une **note de risque F ou G** présentent des taux de défaut
+nettement plus élevés que ceux notés A ou B. De même, les individus ayant un
+**historique de défaut** (`cb_person_default_on_file = Y`) sont proportionnellement
+plus nombreux à être en défaut. La note `loan_grade` et l'historique de défaut
+apparaissent comme des variables particulièrement informatives pour nos classifieurs.
+
+
+# Prétraitement des données
+
+À l'issue de l'analyse exploratoire, les étapes de prétraitement suivantes sont nécessaires
+avant la modélisation :
+
+1. **Suppression des âges aberrants** : les 5 observations avec `person_age > 100` sont
+   retirées (vraisemblables erreurs de saisie, représentent < 0,02 % de l'échantillon).
+2. **Conversion de la variable cible** `loan_status` en facteur à deux niveaux.
+3. **Conversion des variables qualitatives** en facteurs.
+4. **Découpage train/test** (80 %/20 %) stratifié sur `loan_status` - **effectué avant
+   toute imputation et feature engineering** pour éviter tout data leakage.
+5. **Imputation des valeurs manquantes** par la médiane calculée **sur le train
+   uniquement**, puis appliquée au test. Cela garantit que le test ne fournit aucune
+   information au processus d'entraînement.
+6. **Feature engineering** (après imputation) : création de deux nouvelles variables
+   explicatives appliquées séparément sur train et test (détaillé ci-dessous).
+
+## Feature engineering
+
+L'analyse exploratoire a mis en évidence deux relations particulièrement importantes :
+le taux d'intérêt et le ratio prêt/revenu sont tous deux discriminants, et les grades
+D à G concentrent les défauts. Nous en dérivons deux variables supplémentaires :
+
+- **`risk_score`** : produit de `loan_percent_income` par `loan_int_rate`. Cette variable
+  capture la **charge financière combinée** - un emprunteur avec un ratio prêt/revenu
+  élevé *et* un taux élevé supporte un fardeau démultiplié. L'interaction n'est pas
+  linéairement redondante avec les deux variables séparées.
+- **`high_risk_grade`** : indicateur binaire valant 1 si la note du prêt appartient
+  aux classes D, E, F ou G (grades les plus risqués), 0 sinon. Ce regroupement est
+  justifié par la forte discontinuité du taux de défaut observée entre les classes C
+  et D dans l'analyse exploratoire.
+
+```{r pretraitement}
+set.seed(42)
+
+# -- Étape 1 : nettoyage des âges aberrants ------------------------------------
+n_avant <- nrow(data)
+data <- data[data$person_age <= 100, ]
+cat("Observations supprimées (âge > 100) :", n_avant - nrow(data), "\n")
+cat("Taille du jeu de données après nettoyage :", nrow(data), "\n")
+
+# -- Étape 2 : conversion de la variable cible et des variables qualitatives ---
+data$loan_status <- factor(data$loan_status, levels = c(0, 1),
+                           labels = c("NonDefaut", "Defaut"))
+data$person_home_ownership     <- factor(data$person_home_ownership)
+data$loan_intent               <- factor(data$loan_intent)
+data$loan_grade                <- factor(data$loan_grade,
+                                         levels = c("A","B","C","D","E","F","G"))
+data$cb_person_default_on_file <- factor(data$cb_person_default_on_file)
+
+# -- Étape 3 : découpage stratifié AVANT imputation et feature engineering -----
+# Indispensable pour éviter tout data leakage vers le jeu de test.
+index_train <- createDataPartition(data$loan_status, p = 0.8, list = FALSE)
+train <- data[ index_train, ]
+test  <- data[-index_train, ]
+
+cat("Taille train :", nrow(train),
+    "| Taille test :", nrow(test), "\n")
+prop.table(table(train$loan_status))
+prop.table(table(test$loan_status))
+
+# -- Étape 4 : imputation par la médiane du TRAIN uniquement ------------------
+
+med_int_rate   <- median(train$loan_int_rate,    na.rm = TRUE)
+med_emp_length <- median(train$person_emp_length, na.rm = TRUE)
+
+train$loan_int_rate[is.na(train$loan_int_rate)]         <- med_int_rate
+train$person_emp_length[is.na(train$person_emp_length)] <- med_emp_length
+test$loan_int_rate[is.na(test$loan_int_rate)]           <- med_int_rate
+test$person_emp_length[is.na(test$person_emp_length)]   <- med_emp_length
+
+cat("Médiane loan_int_rate (train) :", med_int_rate, "\n")
+cat("Médiane person_emp_length (train) :", med_emp_length, "\n")
+cat("Valeurs manquantes restantes - train :", sum(is.na(train)), "\n")
+cat("Valeurs manquantes restantes - test  :", sum(is.na(test)),  "\n")
+
+# -- Étape 5 : feature engineering (après imputation, sans statistique externe)
+
+train <- train %>%
+  mutate(
+    risk_score      = loan_percent_income * loan_int_rate,
+    high_risk_grade = as.integer(loan_grade %in% c("D", "E", "F", "G"))
+  )
+test <- test %>%
+  mutate(
+    risk_score      = loan_percent_income * loan_int_rate,
+    high_risk_grade = as.integer(loan_grade %in% c("D", "E", "F", "G"))
+  )
+cat("Variables créées : risk_score, high_risk_grade\n")
+cat("Valeurs manquantes finales - train :", sum(is.na(train)), "\n")
+cat("Valeurs manquantes finales - test  :", sum(is.na(test)),  "\n")
+```
+
+Le découpage stratifié garantit que la proportion de défauts est similaire dans les
+ensembles d'entraînement et de test, ce qui assure la comparabilité des évaluations.
+`caret` gère automatiquement l'encodage *dummy* des variables catégorielles pour la
+régression logistique via son mécanisme interne de prétraitement.
+
+```{r helper-cm, echo=FALSE}
+# Fonction utilitaire : visualisation graphique de la matrice de confusion
+plot_confusion_matrix <- function(cm, titre) {
+  df <- as.data.frame(cm$table)
+  names(df) <- c("Prediction", "Reference", "n")
+  df <- df %>%
+    mutate(
+      type = case_when(
+        Prediction == "Defaut"    & Reference == "Defaut"    ~
+          paste0("Vrai Positif\n(VP = ", n, ")"),
+        Prediction == "Defaut"    & Reference == "NonDefaut" ~
+          paste0("Faux Positif\n(FP = ", n, ")"),
+        Prediction == "NonDefaut" & Reference == "Defaut"    ~
+          paste0("Faux Négatif\n(FN = ", n, ")"),
+        Prediction == "NonDefaut" & Reference == "NonDefaut" ~
+          paste0("Vrai Négatif\n(VN = ", n, ")")
+      ),
+      couleur = ifelse(Prediction == Reference, "correct", "erreur")
+    )
+
+  ggplot(df, aes(x = Reference, y = Prediction, fill = couleur)) +
+    geom_tile(color = "white", linewidth = 1.5) +
+    geom_text(aes(label = type), size = 4.5, fontface = "bold", color = "white") +
+    scale_fill_manual(
+      values = c("correct" = "#2196F3", "erreur" = "#E53935"),
+      guide  = "none"
+    ) +
+    scale_x_discrete(
+      labels = c("Defaut" = "Défaut (1)", "NonDefaut" = "Non-défaut (0)")
+    ) +
+    scale_y_discrete(
+      labels = c("Defaut" = "Défaut (1)", "NonDefaut" = "Non-défaut (0)")
+    ) +
+    labs(title = titre, x = "Valeur réelle", y = "Prédiction") +
+    theme_minimal(base_size = 12) +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+}
+```
+
+
+# Classifieur 1 : Naïve Bayes
+
+## Principe et justification
+
+Le classifieur **Naïve Bayes** repose sur le théorème de Bayes en supposant
+l'**indépendance conditionnelle** des variables explicatives sachant la classe :
+
+$$P(\text{Défaut} \mid x_1, \ldots, x_p) \propto P(\text{Défaut}) \prod_{j=1}^{p} P(x_j \mid \text{Défaut})$$
+
+Chaque vraisemblance $P(x_j \mid C)$ est estimée empiriquement : par une loi gaussienne
+pour les variables continues, et par comptage de fréquences pour les variables
+catégorielles. Le **lissage de Laplace** (paramètre $\lambda$) est appliqué aux
+fréquences catégorielles afin d'éviter les probabilités nulles lorsqu'une modalité
+n'apparaît pas dans un pli de validation.
+
+Nous avons retenu Naïve Bayes pour les raisons suivantes :
+
+- **Efficacité computationnelle** : l'estimation se réduit à des statistiques
+  univariées par classe, ce qui le rend très rapide même sur des données de grande
+  dimension.
+- **Gestion native des variables mixtes** : les variables continues et catégorielles
+  sont modélisées séparément, sans encodage *dummy* ni normalisation imposée.
+- **Bon comportement avec peu de données** : grâce à sa faible variance, Naïve Bayes
+  généralise bien lorsque l'échantillon d'apprentissage est limité.
+- **Baseline probabiliste solide** : il fournit des probabilités a posteriori
+  directement exploitables pour ajuster un seuil de décision selon le coût métier.
+
+## Plan d'analyse
+
+L'hyperparamètre principal est le **paramètre de lissage de Laplace** $\lambda$
+(alias `laplace`) : une valeur nulle donne les fréquences brutes (risque de
+probabilité zéro), tandis qu'une valeur positive lisse les distributions catégorielles.
+
+**Métrique d'évaluation** : l'**AUC-ROC** est utilisée pour sélectionner le
+$\lambda$ optimal, complétée par le **recall** pour quantifier la détection des
+vrais défauts.
+
+## Implémentation et choix de l'hyperparamètre
+
+```{r nb-cv, cache=TRUE}
+ctrl <- trainControl(method          = "cv",
+                     number          = 10,
+                     classProbs      = TRUE,
+                     summaryFunction = twoClassSummary,
+                     savePredictions = "final")
+
+grid_nb <- expand.grid(laplace   = c(0, 0.5, 1, 2, 5),
+                       usekernel = FALSE,
+                       adjust    = 1)
+
+set.seed(42)
+nb_cv <- train(loan_status ~ .,
+               data      = train,
+               method    = "naive_bayes",
+               trControl = ctrl,
+               tuneGrid  = grid_nb,
+               metric    = "ROC")
+
+plot(nb_cv,
+     main = "AUC-ROC en fonction du paramètre de lissage de Laplace")
+cat("Meilleur laplace :", nb_cv$bestTune$laplace, "\n")
+```
+
+```{r nb-final}
+nb_final <- naive_bayes(loan_status ~ ., data = train,
+                        laplace = nb_cv$bestTune$laplace)
+print(nb_final)
+```
+
+## Évaluation du classifieur final
+
+```{r nb-evaluation}
+pred_nb      <- predict(nb_final, newdata = test)
+pred_nb_prob <- predict(nb_final, newdata = test, type = "prob")[, "Defaut"]
+
+cm_nb <- confusionMatrix(pred_nb, test$loan_status, positive = "Defaut")
+print(cm_nb)
+```
+
+```{r nb-cm-plot, fig.height=4}
+plot_confusion_matrix(cm_nb, "Matrice de confusion - Naïve Bayes")
+```
+
+```{r nb-roc, fig.height=4}
+roc_nb <- roc(test$loan_status, pred_nb_prob,
+              levels = c("NonDefaut", "Defaut"))
+plot(roc_nb, col = "steelblue", lwd = 2, legacy.axes = TRUE,
+     xlim = c(1, 0), ylim = c(0, 1), xaxs = "i", yaxs = "i",
+     main = paste0("Courbe ROC - Naïve Bayes (AUC = ",
+                   round(auc(roc_nb), 3), ")"))
+abline(a = 1, b = -1, lty = 2, col = "grey60")
+```
+
+**Interprétation :** Le classifieur Naïve Bayes produit des probabilités a posteriori
+continues, exploitables pour moduler le seuil de décision. Les faux négatifs (défauts
+non détectés) restent la principale source d'erreur à surveiller, compte tenu du coût
+métier élevé de ce type d'erreur. L'hypothèse d'indépendance conditionnelle peut
+cependant limiter la performance lorsque des variables sont fortement corrélées (comme
+`loan_int_rate` et `loan_percent_income`).
+
+
+# Classifieur 2 : Régression Logistique
+
+## Principe et justification
+
+La **régression logistique** est le modèle de référence classique pour la classification
+binaire, notamment dans le cadre réglementaire du risque de crédit. Elle modélise le
+logarithme du rapport de probabilités (*log-odds*) d'appartenir à la classe positive
+(le défaut) comme une combinaison linéaire des variables explicatives :
+
+$$\log\left(\frac{P(\text{Défaut})}{1 - P(\text{Défaut})}\right) = \beta_0 + \beta_1 x_1 + \cdots + \beta_p x_p$$
+
+La probabilité prédite est ensuite obtenue via la fonction sigmoïde. Les variables
+catégorielles sont automatiquement encodées en variables indicatrices (*dummy*) par
+`caret`.
+
+Nous justifions ce choix par :
+
+- **Interprétabilité directe** : l'impact de chaque variable est quantifié par son
+  coefficient (ou l'odds-ratio associé), ce qui est précieux pour justifier un refus
+  de crédit auprès d'un régulateur.
+- **Probabilités de classe bien calibrées** : contrairement à Naïve Bayes dont les
+  probabilités peuvent être mal calibrées sous l'hypothèse d'indépendance, les scores
+  issus de la fonction sigmoïde sont continus et fiables pour ajuster un seuil de
+  décision selon le coût métier.
+
+## Plan d'analyse
+
+La régression logistique standard ne possède pas d'hyperparamètre à optimiser. La
+validation croisée 10 fois est utilisée **uniquement pour estimer la performance
+généralisable** du modèle. Les données sont centrées-réduites (`preProcess`) afin
+que les coefficients soient comparables entre variables.
+
+## Implémentation
+
+```{r logit-cv, cache=TRUE}
+set.seed(42)
+logit_cv <- train(loan_status ~ .,
+                  data       = train,
+                  method     = "glm",
+                  family     = "binomial",
+                  trControl  = ctrl,
+                  preProcess = c("center", "scale"),
+                  metric     = "ROC")
+
+cat("AUC-ROC moyenne en validation croisée :",
+    round(max(logit_cv$results$ROC), 3), "\n")
+```
+
+## Évaluation du classifieur final
+
+```{r logit-evaluation}
+pred_logit      <- predict(logit_cv, newdata = test)
+pred_logit_prob <- predict(logit_cv, newdata = test, type = "prob")[, "Defaut"]
+
+cm_logit <- confusionMatrix(pred_logit, test$loan_status, positive = "Defaut")
+print(cm_logit)
+```
+
+```{r logit-cm-plot, fig.height=4}
+plot_confusion_matrix(cm_logit, "Matrice de confusion - Régression Logistique")
+```
+
+```{r logit-roc, fig.height=4}
+roc_logit <- roc(test$loan_status, pred_logit_prob,
+                 levels = c("NonDefaut", "Defaut"))
+plot(roc_logit,
+     col = "forestgreen", lwd = 2,
+     legacy.axes = TRUE,
+     xlim = c(1, 0), ylim = c(0, 1), xaxs = "i", yaxs = "i",
+     main = paste0("Courbe ROC - Régression Logistique (AUC = ",
+                   round(auc(roc_logit), 3), ")"))
+
+abline(a = 1, b = -1, lty = 2, col = "grey60")
+```
+
+**Interprétation :** La régression logistique offre des probabilités bien calibrées
+et des coefficients directement interprétables. Le graphique des coefficients permet
+d'identifier les variables les plus déterminantes dans la prédiction du défaut.
+
+
+# Comparaison et choix final
+
+```{r comparaison-tableau}
+extract_metrics <- function(cm, roc_obj) {
+  data.frame(
+    Accuracy  = round(cm$overall["Accuracy"], 3),
+    Recall    = round(cm$byClass["Sensitivity"], 3),
+    Precision = round(cm$byClass["Pos Pred Value"], 3),
+    F1        = round(cm$byClass["F1"], 3),
+    AUC       = round(auc(roc_obj), 3)
+  )
+}
+
+metrics <- rbind(
+  extract_metrics(cm_nb, roc_nb),
+  extract_metrics(cm_logit, roc_logit)
+)
+rownames(metrics) <- c("Naïve Bayes", "Régression Logistique")
+
+kable(metrics, booktabs = TRUE,
+      caption = "Comparaison des métriques de performance sur le jeu de test") %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+```{r comparaison-roc, fig.height=5}
+plot(roc_nb, col = "steelblue", lwd = 2, legacy.axes = TRUE,
+     xlim = c(1, 0), ylim = c(0, 1), xaxs = "i", yaxs = "i",
+     main = "Superposition des courbes ROC")
+lines(roc_logit, col = "forestgreen", lwd = 2)
+abline(a = 1, b = -1, lty = 2, col = "grey60")
+legend("bottomright",
+       legend = c(paste0("Naïve Bayes (AUC = ", round(auc(roc_nb), 3), ")"),
+                  paste0("Régression Log. (AUC = ", round(auc(roc_logit), 3), ")")),
+       col    = c("steelblue", "forestgreen"),
+       lwd    = 2, bty = "n")
+```
+
+**Discussion.** Le classifieur Naïve Bayes est particulièrement efficace et fournit
+des probabilités a posteriori directement exploitables, mais son hypothèse
+d'indépendance conditionnelle peut le pénaliser face à des variables corrélées.
+La régression logistique offre une interprétation directe des coefficients et des
+probabilités bien calibrées, deux atouts essentiels en contexte bancaire.
+
+**Classifieur retenu** : Nous recommandons la **Régression Logistique** pour les
+raisons suivantes :
+- Probabilités bien calibrées, idéales pour fixer un seuil de décision métier.
+- Coefficients directement interprétables et justifiables auprès d'un régulateur.
+- Modèle approuvé par les réglementations bancaires (Bâle III, IFRS 9).
+- **Limite** : hypothèse de linéarité du log-odds ; sensible aux valeurs extrêmes
+  dans `person_income`.
+
+
+# Conclusion et pistes d'amélioration
+
+Nous avons conduit une analyse complète de classification supervisée sur le jeu de données
+*Credit Risk Dataset*, de l'exploration des données jusqu'à la comparaison de deux
+classifieurs. Le **feature engineering** (création de `risk_score` et `high_risk_grade`)
+a enrichi l'espace des variables en s'appuyant sur la connaissance métier révélée par
+l'analyse exploratoire. Les résultats montrent que la prédiction du défaut de paiement
+est accessible avec des méthodes classiques, et que certaines variables - notamment
+`loan_grade`, `loan_int_rate` et `loan_percent_income` - sont particulièrement
+discriminantes.
+
+**Limites rencontrées** :
+
+- Le **déséquilibre de classes** (~78 % / 22 %) peut biaiser les classifieurs vers la
+  classe majoritaire. Nous l'avons partiellement compensé en utilisant l'AUC-ROC comme
+  critère d'évaluation plutôt que l'accuracy.
+- Les **valeurs aberrantes** dans `person_income` (revenus > 1 M USD) n'ont pas été
+  filtrées ; elles peuvent influencer la régression logistique dont les coefficients
+  dépendent de l'échelle des variables.
+- Le classifieur Naïve Bayes suppose l'**indépendance conditionnelle** des variables
+  explicatives, hypothèse mise en défaut par les corrélations observées (notamment
+  entre `loan_int_rate` et `loan_percent_income`), ce qui peut dégrader ses
+  probabilités a posteriori.
+- La régression logistique suppose une **relation linéaire** entre les variables
+  explicatives et le log-odds, hypothèse qui peut être mise en défaut par des
+  relations fortement non linéaires.
+
+**Pistes non explorées faute de temps** :
+
+- **Rééchantillonnage SMOTE** (*Synthetic Minority Over-sampling Technique*) pour
+  rééquilibrer les classes et améliorer le recall sur les défauts.
+- **Forêt aléatoire** ou **gradient boosting** (XGBoost) pour de meilleures
+  performances prédictives tout en conservant des mesures d'importance des variables.
+- **Optimisation du seuil de décision** : plutôt que d'utiliser le seuil par défaut
+  de 0,5, choisir un seuil qui maximise le recall tout en maintenant une précision
+  acceptable, selon le coût métier des faux négatifs.
+
+
+# Déclaration d'utilisation de l'IA
+
+Dans le cadre de ce projet, nous avons eu recours à des outils d'intelligence artificielle
+pour les tâches suivantes :
+
+- **Support syntaxique et débogage** : L'outil a été utilisé ponctuellement pour nous aider à corriger la syntaxe de certains blocs de code R ou pour ajuster la mise en forme du document `.Rmd` (ajustement des graphiques, esthétique des tableaux avec `kableExtra`). Le code analytique a été conçu par nos soins.
+- **Correction et relecture** : Les explications théoriques (sections "Principe et justification") et les interprétations des résultats ont été intégralement rédigées par les membres du groupe à l'aide des supports de cours. L'IA a servi occasionnellement d'outil de correction grammaticale ou d'amélioration typographique.
+- Aucune IA n'a été utilisée pour la conception de la démarche analytique, le choix des modèles, le feature engineering, ni pour interpréter les résultats. Toutes les décisions, analyses et conclusions présentées dans ce rapport découlent uniquement de la réflexion et du travail des auteurs.
+
+
+# Contributions de chacun
+
+**Mohamed FOFANA** : recherche et sélection du jeu de données ; rédaction de la section
+d'introduction et de présentation générale ; implémentation du prétraitement des données
+et du feature engineering ; implémentation et optimisation du classifieur Naïve Bayes ;
+rédaction de la comparaison et du choix final ; mise en forme globale du rapport.
+
+**Abdou FALL** : analyse univariée (statistiques descriptives et graphiques) ; analyse
+multivariée (matrice de corrélation, boxplots et barplots par cible) ; implémentation
+et évaluation du classifieur par Régression Logistique ; rédaction de la conclusion et
+des pistes d'amélioration ; préparation de la présentation orale.
+
+
+# Bibliographie
+
+Étiévant, L. (2025-2026). *Compléments de Mathématiques 2 - Introduction au Machine
+Learning*. Cours L3 MIASHS, Université Grenoble Alpes.
+
+Kaggle. *Credit Risk Dataset* (laotse).
+https://www.kaggle.com/datasets/laotse/credit-risk-dataset
+
+Breiman, L., Friedman, J., Stone, C. J., & Olshen, R. A. (1984).
+*Classification and Regression Trees*. CRC Press.
+
+Hosmer, D. W., Lemeshow, S., & Sturdivant, R. X. (2013).
+*Applied Logistic Regression* (3rd ed.). Wiley.
+
+Kuhn, M. (2008). Building Predictive Models in R Using the caret Package.
+*Journal of Statistical Software*, 28(5), 1–26.
+https://doi.org/10.18637/jss.v028.i05
+
+Robin, X., Turck, N., Hainard, A., et al. (2011). pROC: an open-source package
+for R and S+ to analyze and compare ROC curves.
+*BMC Bioinformatics*, 12, 77. https://doi.org/10.1186/1471-2105-12-77
+
+```{r save-models, echo=FALSE}
+saveRDS(nb_final,    "modele_nb.rds")
+saveRDS(logit_cv,    "modele_logit.rds")
+```

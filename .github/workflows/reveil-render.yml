@@ -1,0 +1,23 @@
+# Garde l'application éveillée sur Render.
+# Le plan gratuit endort le service après 15 minutes sans visite, et le réveil prend
+# environ une minute : un recruteur qui clique sur le lien attendrait. Un appel toutes
+# les 10 minutes évite cette attente.
+# Coût : le service reste allumé en continu, ce qui consomme les heures gratuites de
+# Render (750 h par mois, de quoi faire tourner un seul service en permanence).
+# Pour le désactiver : onglet Actions du dépôt -> « Réveil de l'application » -> Disable.
+name: Réveil de l'application
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  reveil:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Appeler l'application
+        run: curl --fail --silent --show-error --max-time 150 --output /dev/null https://credit-risk-app-c8ye.onrender.com/

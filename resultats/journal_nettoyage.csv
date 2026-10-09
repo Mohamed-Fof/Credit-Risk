@@ -1,0 +1,5 @@
+"etape","lignes"
+"Jeu de données brut",32581
+"Après suppression des doublons exacts",32416
+"Après suppression des âges supérieurs à 100 ans",32411
+"Après suppression des anciennetés incompatibles avec l'âge",32409

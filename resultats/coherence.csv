@@ -1,0 +1,4 @@
+"Modele","Montant +20 %","Revenu +20 %","Taux +2 points","Note dégradée d'un cran"
+"XGBoost",0,0,0,0
+"XGBoost non contraint",0.1857,0.2299,0.1003,0.0019
+"Régression logistique",0.041,0,0,0
