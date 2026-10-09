@@ -13,6 +13,13 @@ FROM rocker/r-ver:4.5.1
 # « Naïve Bayes ») et l'application ne se charge pas.
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
+# Bibliothèque système requise par le paquet fs (utilisé par sass pour compiler le thème).
+# Les paquets précompilés de Posit ne l'embarquent pas : sans elle, la page d'accueil
+# plante au premier affichage (liste fournie par l'API sysreqs de Posit).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libuv1 \
+ && rm -rf /var/lib/apt/lists/*
+
 ARG INSTANTANE_CRAN=2026-10-09
 RUN CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME") \
  && R -q -e "options(repos = c(CRAN = 'https://p3m.dev/cran/__linux__/${CODENAME}/${INSTANTANE_CRAN}')); \
@@ -25,9 +32,12 @@ WORKDIR /app
 COPY --chown=appli:appli app/ /app/
 USER appli
 
-# Contrôle à la construction : l'application doit se charger entièrement (paquets, modèles,
-# fichiers). Sinon la construction échoue et Render garde la version précédente en ligne.
-RUN Rscript -e "setwd('/app'); app <- source('app.R')\$value; stopifnot(inherits(app, 'shiny.appobj'))"
+# Contrôle à la construction : l'application doit se charger ET la page d'accueil s'afficher
+# (thème compilé, toutes les bibliothèques chargées). Sinon la construction échoue et Render
+# garde la version précédente en ligne.
+RUN Rscript -e "setwd('/app'); e <- new.env(); app <- source('app.R', local = e)\$value; \
+                page <- htmltools::renderTags(e\$ui); \
+                stopifnot(inherits(app, 'shiny.appobj'), grepl('Scoring de risque', page\$html), length(page\$dependencies) > 0)"
 
 # Render fournit le port dans $PORT (10000 par défaut).
 ENV PORT=10000

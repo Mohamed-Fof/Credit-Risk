@@ -107,7 +107,7 @@ Elle est entièrement en français, contrôle chaque saisie (bornes, cohérence 
 ├── docs/guide_projet.pdf        guide complet (source LaTeX + chiffres générés par R/05)
 ├── rapport_L3/                  rapport, script, application et soutenance d'origine (avril 2026)
 ├── Dockerfile                   image de production
-└── .github/workflows/           maintien de l'application éveillée sur Render
+└── .github/workflows/           intégration continue (image testée à chaque envoi) et maintien de l'application éveillée
 ```
 
 La préparation des données n'est écrite qu'une fois (`app/preparation.R`) et utilisée à la fois pour l'entraînement et dans l'application. L'export vérifie que l'application reproduit **exactement** les prédictions de l'entraînement sur les 6 482 dossiers de test.
