@@ -459,8 +459,13 @@ Choix faits pour démarrer vite :
 \begin{itemize}
 \item image minimale (365 Mo contre 580 Mo pour l'image Shiny complète de la version 1) ;
 \item paquets \emph{précompilés} (Posit Package Manager), figés à la date d'entraînement : la version de XGBoost qui lit le modèle est celle qui l'a créé ;
-\item modèles allégés : 2,3 Mo chargés une fois au démarrage, contre un modèle de 40 Mo rechargé à chaque prédiction dans la version 1. L'application est prête en moins de 2 secondes une fois le conteneur lancé.
+\item modèles allégés : 2,3 Mo chargés une fois au démarrage, contre un modèle de 40 Mo rechargé à chaque prédiction dans la version 1. L'application est prête en moins de 2 secondes une fois le conteneur lancé ;
+\item \textbf{contrôle à la construction} : l'image vérifie que l'application se charge entièrement avant d'être produite. Si quelque chose casse, la construction échoue et Render garde la version précédente en ligne au lieu d'afficher une erreur aux visiteurs.
 \end{itemize}
+
+\begin{alerte}[Retour d'expérience : la locale]
+Lors du premier déploiement, l'application fonctionnait parfaitement en local mais affichait une erreur en ligne. La cause : le conteneur Linux ne déclarait pas de locale UTF-8, et R ne lisait plus les accents des scripts (« Régression », « Naïve Bayes »). Le diagnostic a consisté à reproduire localement la différence (\code{LANG=C}), ce qui a fait apparaître exactement la même erreur. Correction : \code{ENV LANG=C.UTF-8} dans le \code{Dockerfile}, et le contrôle à la construction ci-dessus pour que ce type d'erreur ne puisse plus atteindre les visiteurs.
+\end{alerte}
 
 \subsection{Render et le cycle de mise à jour}
 Render (offre gratuite) surveille le dépôt GitHub. À chaque \code{git push} sur la branche principale : construction de l'image à partir du \code{Dockerfile}, lancement du conteneur, bascule du trafic. Mettre à jour l'application, c'est donc : modifier le code, relancer \code{R/executer\_tout.R} et \code{tests/tests.R}, puis pousser.

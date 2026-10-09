@@ -9,6 +9,10 @@
 # =============================================================================
 FROM rocker/r-ver:4.5.1
 
+# Locale UTF-8 explicite : sans elle, R ne lit pas les accents des scripts (« Régression »,
+# « Naïve Bayes ») et l'application ne se charge pas.
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+
 ARG INSTANTANE_CRAN=2026-10-09
 RUN CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME") \
  && R -q -e "options(repos = c(CRAN = 'https://p3m.dev/cran/__linux__/${CODENAME}/${INSTANTANE_CRAN}')); \
@@ -20,6 +24,10 @@ RUN useradd --create-home appli
 WORKDIR /app
 COPY --chown=appli:appli app/ /app/
 USER appli
+
+# Contrôle à la construction : l'application doit se charger entièrement (paquets, modèles,
+# fichiers). Sinon la construction échoue et Render garde la version précédente en ligne.
+RUN Rscript -e "setwd('/app'); app <- source('app.R')\$value; stopifnot(inherits(app, 'shiny.appobj'))"
 
 # Render fournit le port dans $PORT (10000 par défaut).
 ENV PORT=10000

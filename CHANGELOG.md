@@ -51,6 +51,7 @@ Reprise complète du projet présenté en soutenance (L3 MIASHS, avril 2026). La
 ### Déploiement
 - Image Docker minimale (`rocker/r-ver` au lieu de `rocker/shiny`), paquets précompilés figés à la date d'entraînement, lancement sans shiny-server.
 - Tâche GitHub Actions qui garde l'application éveillée sur Render (fin du réveil de 72 secondes).
+- Locale UTF-8 explicite et contrôle de chargement de l'application au moment de la construction de l'image.
 
 ### Tests
 - 26 tests automatiques (`tests/tests.R`) : contrôle des saisies face à un client malveillant, préparation, reproduction exacte des prédictions, additivité des valeurs de Shapley, cohérence du modèle sur tous les dossiers de test, grille de score.

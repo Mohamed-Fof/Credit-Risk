@@ -131,6 +131,7 @@ L'application tourne sur **Render** (offre gratuite) à partir du `Dockerfile` :
 
 - image R minimale (`rocker/r-ver`, 365 Mo contre 580 Mo pour `rocker/shiny` auparavant) et paquets **précompilés** figés à la date d'entraînement ;
 - seulement 5 paquets et 2,3 Mo de modèles chargés une fois au démarrage (la v1 rechargeait un modèle de 40 Mo à chaque prédiction) : l'application est prête en moins de 2 secondes une fois le conteneur lancé ;
+- **contrôle à la construction** : l'image vérifie que l'application se charge (locale UTF-8, paquets, modèles) ; si quelque chose casse, Render garde la version précédente en ligne ;
 - l'offre gratuite de Render endort le service après 15 minutes sans visite (72 secondes de réveil mesurées) : la tâche [`reveil-render.yml`](.github/workflows/reveil-render.yml) l'appelle toutes les 10 minutes pour qu'un visiteur n'attende pas.
 
 **Sécurité.** Toutes les saisies sont revérifiées côté serveur (Shiny ne contrôle pas que la valeur d'une liste déroulante fait partie des choix proposés), les messages d'erreur techniques sont masqués, le conteneur tourne sans droits d'administrateur et l'application ne conserve aucune donnée saisie.
