@@ -13,6 +13,9 @@ source("modeles_application.R", encoding = "UTF-8")
 
 MODELES <- readRDS("modeles/modeles.rds")
 MODELES$xgboost <- xgb.load("modeles/xgboost.ubj")
+# Un seul fil de calcul : un dossier se prédit en moins d'une milliseconde, et sur un serveur
+# partagé (fraction de processeur), plusieurs fils se disputeraient le quota et ralentiraient tout.
+xgb.model.parameters(MODELES$xgboost) <- list(nthread = 1)
 EVAL <- readRDS("modeles/evaluation.rds")
 
 BLEU <- "#2563eb"; VIOLET <- "#7c3aed"; ROUGE <- "#dc2626"; VERT <- "#16a34a"

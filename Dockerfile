@@ -12,6 +12,9 @@ FROM rocker/r-ver:4.5.1
 # Locale UTF-8 explicite : sans elle, R ne lit pas les accents des scripts (« Régression »,
 # « Naïve Bayes ») et l'application ne se charge pas.
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+# Un seul fil OpenMP : le conteneur ne dispose que d'une fraction de processeur ; plusieurs fils
+# (XGBoost en lance un par cœur de la machine hôte) se disputeraient ce quota en attente active.
+ENV OMP_NUM_THREADS=1
 
 # Bibliothèque système requise par le paquet fs (utilisé par sass pour compiler le thème).
 # Les paquets précompilés de Posit ne l'embarquent pas : sans elle, la page d'accueil
