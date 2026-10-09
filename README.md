@@ -132,6 +132,7 @@ L'application tourne sur **Render** (offre gratuite) à partir du `Dockerfile` :
 - image R minimale (`rocker/r-ver`, 365 Mo contre 580 Mo pour `rocker/shiny` auparavant) et paquets **précompilés** figés à la date d'entraînement ;
 - seulement 4 paquets et 1,5 Mo de modèles et d'images chargés une fois au démarrage (la v1 rechargeait un modèle de 40 Mo à chaque prédiction) ;
 - page construite **une seule fois** au démarrage puis resservie (1,3 ms par visite au lieu de 223 ms : la compilation du thème était refaite à chaque visite), graphiques dessinés à l'avance : le serveur gratuit, environ 10 fois moins puissant qu'un ordinateur portable, n'a presque plus rien à calculer ;
+- mesures en production : page affichée **avec sa décision en 0,5 à 0,7 s** (contre 5,5 à 8 s avant optimisation), serveur qui répond en 0,27 s ; détail et méthode dans le guide ;
 - **contrôle à la construction** : l'image vérifie que l'application se charge (locale UTF-8, paquets, modèles) ; si quelque chose casse, Render garde la version précédente en ligne ;
 - l'offre gratuite de Render endort le service après 15 minutes sans visite (72 secondes de réveil mesurées) : la tâche [`reveil-render.yml`](.github/workflows/reveil-render.yml) l'appelle toutes les 10 minutes, et le portfolio la réveille en arrière-plan dès qu'un visiteur arrive.
 

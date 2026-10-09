@@ -467,11 +467,34 @@ Choix faits pour démarrer vite :
 Lors du premier déploiement, l'application fonctionnait parfaitement en local mais affichait une erreur en ligne. La cause : le conteneur Linux ne déclarait pas de locale UTF-8, et R ne lisait plus les accents des scripts (« Régression », « Naïve Bayes »). Le diagnostic a consisté à reproduire localement la différence (\code{LANG=C}), ce qui a fait apparaître exactement la même erreur. Mais ce n'était qu'une partie du problème : une fois la locale corrigée, l'intégration continue (GitHub Actions, qui construit et lance l'image à chaque envoi) a révélé une seconde cause, la bibliothèque système \code{libuv} manquante pour le paquet \code{fs}, utilisé à la compilation du thème. Les paquets précompilés n'embarquent pas leurs dépendances système. Corrections : \code{ENV LANG=C.UTF-8}, installation de \code{libuv1}, et un contrôle à la construction qui affiche réellement la page d'accueil. Leçon : un contrôle doit reproduire l'usage réel (ici, afficher la page), sinon il laisse passer des erreurs.
 \end{alerte}
 
+\subsection{Optimiser pour un serveur très modeste}
+L'offre gratuite de Render n'accorde qu'environ 0,1 processeur : chaque calcul y est 10 à 15 fois plus lent que sur un ordinateur portable. Une fois en ligne, l'application mettait 5 à 8 secondes à afficher sa première décision. Plutôt que de deviner, chaque étape a été \emph{mesurée}, puis le serveur a été \emph{profilé} (\code{Rprof}) pendant que des navigateurs automatisés enchaînaient les saisies.
+
+\begin{itemize}
+\item \textbf{Les modèles n'étaient pas en cause} : les cinq prédictions, valeurs de Shapley comprises, prennent 7\,ms.
+\item \textbf{La page était reconstruite à chaque visite} : 65\,\% de ce temps servait à recompiler le thème graphique (Sass). Elle est désormais construite \emph{une fois} au démarrage, puis resservie : 223\,ms $\to$ 1,3\,ms par visite.
+\item \textbf{Un composant de mise en page recompilait ses styles à chaque saisie} (\code{layout\_columns} dans un élément redessiné) : remplacé par une grille CSS.
+\item \textbf{Les graphiques sont dessinés à l'avance} (onglets Comparaison et Exploration) et l'explication devient des barres HTML : \code{ggplot2} n'est plus chargé.
+\item \textbf{La décision du dossier par défaut est incluse dans la page} : le visiteur voit un résultat complet avant même que la connexion au serveur soit établie.
+\end{itemize}
+
+\begin{center}\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Mesure en production} & \textbf{Avant} & \textbf{Après} \\
+\midrule
+Réponse du serveur (premier octet) & 2,0 à 3,5\,s & 0,27\,s \\
+Page affichée avec sa décision & 5,5 à 8\,s & 0,5 à 0,7\,s \\
+Nouvelle décision après une saisie (dont 0,3\,s d'attente volontaire) & 1,1\,s & 0,9\,s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \subsection{Render et le cycle de mise à jour}
 Render (offre gratuite) surveille le dépôt GitHub. À chaque \code{git push} sur la branche principale : construction de l'image à partir du \code{Dockerfile}, lancement du conteneur, bascule du trafic. Mettre à jour l'application, c'est donc : modifier le code, relancer \code{R/executer\_tout.R} et \code{tests/tests.R}, puis pousser.
 
 \begin{alerte}[Le réveil de l'offre gratuite]
-Render endort le service après 15 minutes sans visite, et le réveil prenait 72 secondes : un recruteur aurait attendu plus d'une minute. Une tâche GitHub Actions (\code{.github/workflows/reveil-render.yml}) appelle l'application toutes les 10 minutes pour la garder éveillée. Contrepartie : le service tourne en continu, ce qui consomme les 750 heures gratuites mensuelles de Render.
+Render endort le service après 15 minutes sans visite, et le réveil prenait 72 secondes : un recruteur aurait attendu plus d'une minute. Trois parades se complètent : le portfolio contacte l'application en arrière-plan dès qu'un visiteur l'ouvre ; une tâche GitHub Actions (\code{.github/workflows/reveil-render.yml}) l'appelle toutes les 10 minutes, mais GitHub ne garantit pas l'exécution des tâches planifiées ; un service de surveillance gratuit (UptimeRobot, cron-job.org) est la solution la plus fiable. Contrepartie : le service tourne en continu, ce qui consomme les 750 heures gratuites mensuelles de Render.
 \end{alerte}
 
 % ============================== 11. LIMITES ==============================
